@@ -51,7 +51,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath 'com.android.tools.build:gradle:8.5.2'
               }
           }
           allprojects {
@@ -666,8 +666,10 @@ jobs:
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           export PATH=$PATH:$ANDROID_HOME/platform-tools
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
+          unzip -q /tmp/gradle-8.7-bin.zip -d /tmp/gradle
           cd MgServerProject
-          gradle assembleDebug 2>&1 | tee build.log
+          /tmp/gradle/gradle-8.7/bin/gradle assembleDebug --no-daemon 2>&1 | tee build.log
           EXIT_CODE=${PIPESTATUS[0]}
           if [ $EXIT_CODE -ne 0 ]; then
             echo "=== ERROR SUMMARY ==="
