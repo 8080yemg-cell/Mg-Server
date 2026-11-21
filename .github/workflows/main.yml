@@ -32,6 +32,7 @@ jobs:
           mkdir -p MgServerProject/app/src/main/java/com/magai/mgserver
           mkdir -p MgServerProject/app/src/main/res/layout
           mkdir -p MgServerProject/app/src/main/res/values
+          mkdir -p MgServerProject/app/src/main/res/mipmap-anydpi-v26
 
           cat << 'EOF' > MgServerProject/gradle.properties
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
@@ -75,8 +76,8 @@ jobs:
                   applicationId "com.magai.mgserver"
                   minSdk 19
                   targetSdk 34
-                  versionCode 2
-                  versionName "0.1"
+                  versionCode 3
+                  versionName "0.2"
                   multiDexEnabled true
               }
 
@@ -117,6 +118,28 @@ jobs:
           </resources>
           EOF
 
+          cat << 'EOF' > MgServerProject/app/src/main/res/values/colors.xml
+          <resources>
+              <color name="ic_launcher_bg">#081426</color>
+          </resources>
+          EOF
+
+          cat << 'EOF' > MgServerProject/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_bg" />
+              <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
+          cat << 'EOF' > MgServerProject/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_bg" />
+              <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
           cat << 'EOF' > MgServerProject/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -127,12 +150,14 @@ jobs:
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
               <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:targetApi="33" />
               <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:targetApi="33" />
               <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:targetApi="33" />
 
               <application
                   android:allowBackup="true"
+                  android:requestLegacyExternalStorage="true"
                   android:icon="@mipmap/ic_launcher"
                   android:roundIcon="@mipmap/ic_launcher_round"
                   android:label="@string/app_name"
@@ -167,7 +192,7 @@ jobs:
                   <TextView
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:text="Mg Server v0.1 — Mag Ai"
+                      android:text="Mg Server v0.2 — Mag Ai"
                       android:textColor="#FFFFFF"
                       android:textSize="22sp"
                       android:textStyle="bold" />
@@ -245,7 +270,7 @@ jobs:
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="10dp"
-                      android:text="مسار مجلد الوسائط والملفات (مثل مجلد www)"
+                      android:text="مسار مجلد الوسائط والملفات (MG Server)"
                       android:textColor="#C5CADB"
                       android:textSize="13sp" />
 
@@ -315,11 +340,14 @@ jobs:
           package com.magai.mgserver;
 
           import android.Manifest;
+          import android.content.Intent;
           import android.content.SharedPreferences;
           import android.content.pm.PackageManager;
+          import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
+          import android.provider.Settings;
           import android.widget.Button;
           import android.widget.EditText;
           import android.widget.TextView;
@@ -336,6 +364,7 @@ jobs:
           import java.io.PrintWriter;
           import java.net.Inet4Address;
           import java.net.InetAddress;
+          import java.net.InetSocketAddress;
           import java.net.NetworkInterface;
           import java.net.ServerSocket;
           import java.net.Socket;
@@ -344,8 +373,10 @@ jobs:
           import java.nio.charset.StandardCharsets;
           import java.util.ArrayList;
           import java.util.Collections;
+          import java.util.LinkedHashSet;
           import java.util.List;
           import java.util.Locale;
+          import java.util.Set;
 
           public class MainActivity extends AppCompatActivity {
 
@@ -375,21 +406,26 @@ jobs:
                   Button btnStart = findViewById(R.id.btnStart);
                   Button btnStop = findViewById(R.id.btnStop);
 
-                  String defaultDir = new File(Environment.getExternalStorageDirectory(), "www").getAbsolutePath();
-                  etIp.setText(prefs.getString("ip", detectLocalIp()));
+                  String defaultDir = new File(Environment.getExternalStorageDirectory(), "MG Server").getAbsolutePath();
+                  List<String> ips = detectAllLocalIps();
+                  String bestIp = ips.isEmpty() ? "192.168.1.200" : ips.get(0);
+
+                  etIp.setText(prefs.getString("ip", bestIp));
                   etPort.setText(prefs.getString("port", "8080"));
                   etPassword.setText(prefs.getString("password", ""));
                   etFolder.setText(prefs.getString("folder", defaultDir));
 
                   requestStorageIfNeeded();
-                  generateIndexHtml();
+                  ensureRootAndIndex();
                   refreshSummary();
 
                   btnSaveUpdate.setOnClickListener(v -> {
+                      requestStorageIfNeeded();
                       saveConfig();
-                      generateIndexHtml();
+                      boolean ok = ensureRootAndIndex();
                       refreshSummary();
-                      tvStatus.setText("الحالة: تم حفظ الإعدادات وتحديث الفهرس");
+                      tvStatus.setText(ok ? "الحالة: تم حفظ الإعدادات وتحديث الفهرس" : "الحالة: تعذر إنشاء مجلد MG Server — تحقق من صلاحية التخزين");
+                      tvStatus.setTextColor(ok ? 0xFF38BDF8 : 0xFFFF6B72);
                       if (running) {
                           stopServer();
                           startServer();
@@ -397,8 +433,9 @@ jobs:
                   });
 
                   btnStart.setOnClickListener(v -> {
+                      requestStorageIfNeeded();
                       saveConfig();
-                      generateIndexHtml();
+                      ensureRootAndIndex();
                       startServer();
                       refreshSummary();
                   });
@@ -410,8 +447,17 @@ jobs:
               }
 
               private void requestStorageIfNeeded() {
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                      if (!Environment.isExternalStorageManager()) {
+                          try {
+                              Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                              intent.setData(Uri.parse("package:" + getPackageName()));
+                              startActivity(intent);
+                          } catch (Exception ignored) {}
+                      }
+                  } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                              || ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                           ActivityCompat.requestPermissions(this, new String[]{
                                   Manifest.permission.READ_EXTERNAL_STORAGE,
                                   Manifest.permission.WRITE_EXTERNAL_STORAGE
@@ -420,17 +466,27 @@ jobs:
                   }
               }
 
-              private String detectLocalIp() {
+              private List<String> detectAllLocalIps() {
+                  Set<String> found = new LinkedHashSet<>();
+                  List<String> ordered = new ArrayList<>();
                   try {
                       for (NetworkInterface nif : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                          if (!nif.isUp() || nif.isLoopback()) continue;
                           for (InetAddress addr : Collections.list(nif.getInetAddresses())) {
                               if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
-                                  return addr.getHostAddress();
+                                  String ip = addr.getHostAddress();
+                                  if (ip != null && found.add(ip)) {
+                                      if (ip.startsWith("192.168.")) {
+                                          ordered.add(0, ip);
+                                      } else {
+                                          ordered.add(ip);
+                                      }
+                                  }
                               }
                           }
                       }
                   } catch (Exception ignored) {}
-                  return "192.168.1.200";
+                  return ordered;
               }
 
               private void saveConfig() {
@@ -445,24 +501,68 @@ jobs:
               private File getRootDir() {
                   String path = etFolder.getText().toString().trim();
                   if (path.isEmpty()) {
-                      path = new File(Environment.getExternalStorageDirectory(), "www").getAbsolutePath();
+                      path = new File(Environment.getExternalStorageDirectory(), "MG Server").getAbsolutePath();
                   }
-                  File dir = new File(path);
-                  if (!dir.exists()) {
-                      dir.mkdirs();
-                  }
-                  return dir;
+                  return new File(path);
               }
 
-              private void generateIndexHtml() {
+              private boolean ensureRootAndIndex() {
                   try {
                       File root = getRootDir();
+                      if (!root.exists() && !root.mkdirs()) {
+                          return false;
+                      }
                       String html = buildDirectoryPageHtml(root, "");
                       File outFile = new File(root, "index.html");
                       try (FileOutputStream fos = new FileOutputStream(outFile)) {
                           fos.write(html.getBytes(StandardCharsets.UTF_8));
                       }
-                  } catch (Exception ignored) {}
+                      return true;
+                  } catch (Exception e) {
+                      return false;
+                  }
+              }
+
+              private String buildApiMediaJson(File dir, String relPath) {
+                  try {
+                      File[] files = dir.listFiles();
+                      List<String> foldersJson = new ArrayList<>();
+                      List<String> itemsJson = new ArrayList<>();
+                      String basePrefix = relPath.isEmpty() ? "" : (encodeRel(relPath) + "/");
+
+                      if (files != null) {
+                          for (File f : files) {
+                              if (f.getName().equals("index.html")) continue;
+                              String name = f.getName();
+                              if (f.isDirectory()) {
+                                  String href = "/" + basePrefix + URLEncoder.encode(name, "UTF-8") + "/";
+                                  foldersJson.add("{\"name\":\"" + escapeJson(name) + "\",\"path\":\"" + escapeJson(href) + "\",\"type\":\"folder\"}");
+                              } else {
+                                  String lower = name.toLowerCase(Locale.ROOT);
+                                  String type = "file";
+                                  if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") || lower.endsWith(".3gp")) {
+                                      type = "video";
+                                  } else if (lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".wav") || lower.endsWith(".ogg")) {
+                                      type = "audio";
+                                  } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) {
+                                      type = "image";
+                                  } else if (lower.endsWith(".pdf")) {
+                                      type = "pdf";
+                                  } else if (lower.endsWith(".apk")) {
+                                      type = "apk";
+                                  }
+                                  String url = "/" + basePrefix + URLEncoder.encode(name, "UTF-8");
+                                  itemsJson.add("{\"name\":\"" + escapeJson(name) + "\",\"url\":\"" + escapeJson(url) + "\",\"type\":\"" + type + "\",\"size\":" + f.length() + "}");
+                              }
+                          }
+                      }
+
+                      return "{\"server\":\"Mg Server v0.2\",\"path\":\"/" + escapeJson(relPath)
+                           + "\",\"folders\":[" + String.join(",", foldersJson)
+                           + "],\"items\":[" + String.join(",", itemsJson) + "]}";
+                  } catch (Exception e) {
+                      return "{\"folders\":[],\"items\":[]}";
+                  }
               }
 
               private String buildDirectoryPageHtml(File dir, String relPath) {
@@ -521,7 +621,7 @@ jobs:
                       for (File v : videos) {
                           String src = "/" + basePrefix + URLEncoder.encode(v.getName(), "UTF-8");
                           videoCards.append("<div class='card media-card'>🎬 <div class='title'>").append(escapeHtml(v.getName()))
-                                    .append("</div><video controls preload='metadata' src='").append(src).append("'></video></div>\n");
+                                    .append("</div><video controls preload='metadata' playsinline src='").append(src).append("'></video></div>\n");
                       }
 
                       StringBuilder audioCards = new StringBuilder();
@@ -541,7 +641,7 @@ jobs:
                       StringBuilder pdfCards = new StringBuilder();
                       for (File p : pdfs) {
                           String href = "/" + basePrefix + URLEncoder.encode(p.getName(), "UTF-8");
-                          pdfCards.append("<a class='card doc-card' href='").append(href).append("' target='_blank'>📄 <span>")
+                          pdfCards.append("<a class='card doc-card' href='").append(href).append("'>📄 <span>")
                                   .append(escapeHtml(p.getName())).append("</span></a>\n");
                       }
 
@@ -569,22 +669,21 @@ jobs:
                                     + "</div></div>";
                       }
 
-                      String currentTitle = relPath.isEmpty() ? "الرئيسية" : relPath;
+                      String currentTitle = relPath.isEmpty() ? "MG Server" : relPath;
 
                       return "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-                           + "<title>Mg Server v0.1 — " + escapeHtml(currentTitle) + "</title>"
+                           + "<title>Mg Server v0.2 — " + escapeHtml(currentTitle) + "</title>"
                            + "<style>"
-                           + ":root{--bg:#090b10;--card:#131722;--accent:#e50914;--glow:rgba(229,9,20,0.22);--cyan:rgba(56,189,248,0.18);}"
+                           + ":root{--bg:#090b10;--card:#131722;--accent:#e50914;--glow:rgba(229,9,20,0.24);--cyan:rgba(56,189,248,0.20);}"
                            + "*{box-sizing:border-box;}"
-                           + "body{font-family:Tahoma,sans-serif;background:var(--bg);color:#f3f4f6;margin:0;padding:18px;overflow-x:hidden;transition:background 0.4s ease;}"
-                           + ".ambient-glow{position:fixed;inset:-20%;pointer-events:none;z-index:-1;background:radial-gradient(circle at 50% var(--glow-y,20%),var(--glow),transparent 42%),radial-gradient(circle at 18% var(--glow-y2,70%),var(--cyan),transparent 45%);transition:background 0.25s ease-out;}"
-                           + ".topbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;background:rgba(19,23,34,0.88);backdrop-filter:blur(10px);padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.07);margin-bottom:16px;}"
+                           + "body{font-family:Tahoma,sans-serif;background:var(--bg);color:#f3f4f6;margin:0;padding:18px;overflow-x:hidden;}"
+                           + ".ambient-glow{position:fixed;inset:-20%;pointer-events:none;z-index:-1;background:radial-gradient(circle at 50% var(--glow-y,20%),var(--glow),transparent 42%),radial-gradient(circle at 18% var(--glow-y2,70%),var(--cyan),transparent 45%);transition:background 0.2s ease-out;}"
+                           + ".topbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;background:rgba(19,23,34,0.88);padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.07);margin-bottom:16px;}"
                            + ".badge{background:rgba(229,9,20,0.18);color:#ff6b72;padding:4px 10px;border-radius:999px;font-size:12px;}"
                            + ".cats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}"
                            + ".cat-btn{background:#131722;color:#d1d5db;border:1px solid rgba(255,255,255,0.08);padding:8px 14px;border-radius:999px;cursor:pointer;font-size:13px;transition:transform 0.22s ease,background 0.22s ease,box-shadow 0.22s ease;}"
                            + ".cat-btn:hover,.cat-btn.active{background:#e50914;color:#fff;transform:translateY(-2px);box-shadow:0 8px 20px rgba(229,9,20,0.35);}"
-                           + ".sec{margin-bottom:24px;opacity:0;transform:translateY(18px);transition:opacity 0.5s ease,transform 0.5s ease;}"
-                           + ".sec.visible{opacity:1;transform:translateY(0);}"
+                           + ".sec{margin-bottom:24px;opacity:1;transform:translateY(0);transition:opacity 0.45s ease,transform 0.45s ease;}"
                            + ".sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.08);}"
                            + ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:12px;}"
                            + ".card{display:block;background:var(--card);padding:12px;border-radius:12px;color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,0.06);transition:transform 0.25s ease,box-shadow 0.25s ease,border-color 0.25s ease;}"
@@ -599,7 +698,7 @@ jobs:
                            + "</style></head><body>"
                            + "<div class='ambient-glow' id='glow'></div>"
                            + lockBlock
-                           + "<div class='topbar'><div><strong>Mg Server v0.1</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
+                           + "<div class='topbar'><div><strong>Mg Server v0.2</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
                            + "<div style='font-size:13px;color:#9ca3af;'>المسار: /" + escapeHtml(currentTitle) + "</div></div>"
                            + "<div class='cats'>"
                            + "<button class='cat-btn active' onclick=\"filterCat('all',this)\">الكل</button>"
@@ -613,11 +712,9 @@ jobs:
                            + sections
                            + "<script>"
                            + "const glow=document.getElementById('glow');"
-                           + "window.addEventListener('scroll',()=>{const max=Math.max(1,document.body.scrollHeight-window.innerHeight);const p=window.scrollY/max;glow.style.setProperty('--glow-y',(15+p*65)+'%');glow.style.setProperty('--glow-y2',(80-p*60)+'%');revealSections();},{passive:true});"
-                           + "function revealSections(){document.querySelectorAll('.sec').forEach(s=>{const r=s.getBoundingClientRect();if(r.top<window.innerHeight*0.95){s.classList.add('visible');}});}"
+                           + "window.addEventListener('scroll',()=>{const max=Math.max(1,document.body.scrollHeight-window.innerHeight);const p=window.scrollY/max;glow.style.setProperty('--glow-y',(15+p*65)+'%');glow.style.setProperty('--glow-y2',(80-p*60)+'%');},{passive:true});"
                            + "function filterCat(cat,btn){document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');"
-                           + "document.querySelectorAll('.sec').forEach(s=>{if(cat==='all'||s.dataset.cat===cat){s.style.display='block';setTimeout(()=>s.classList.add('visible'),30);}else{s.style.display='none';}});}"
-                           + "setTimeout(revealSections,60);"
+                           + "document.querySelectorAll('.sec').forEach(s=>{s.style.display=(cat==='all'||s.dataset.cat===cat)?'block':'none';});}"
                            + "</script></body></html>";
                   } catch (Exception e) {
                       return "<h1>تعذر توليد صفحة المجلد</h1>";
@@ -648,12 +745,18 @@ jobs:
                   return s.replace("\\", "\\\\").replace("'", "\\'");
               }
 
+              private String escapeJson(String s) {
+                  return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+              }
+
               private void refreshSummary() {
                   String ip = etIp.getText().toString().trim();
                   String port = etPort.getText().toString().trim();
                   String folder = getRootDir().getAbsolutePath();
                   String passState = etPassword.getText().toString().isEmpty() ? "بدون كلمة مرور" : "محمي بكلمة مرور";
-                  tvSummary.setText("الإصدار: v0.1\nالرابط: http://" + ip + ":" + port + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
+                  List<String> allIps = detectAllLocalIps();
+                  String ipsText = allIps.isEmpty() ? ip : String.join(" , ", allIps);
+                  tvSummary.setText("الإصدار: v0.2\nالرابط: http://" + ip + ":" + port + "\nعناوين IP المتاحة: " + ipsText + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
               }
 
               private void startServer() {
@@ -665,15 +768,17 @@ jobs:
 
                   final int bindPort = port;
                   running = true;
-                  tvStatus.setText("الحالة: يعمل على المنفذ " + bindPort);
+                  tvStatus.setText("الحالة: يعمل على 0.0.0.0:" + bindPort);
                   tvStatus.setTextColor(0xFF4ADE80);
 
                   serverThread = new Thread(() -> {
                       try {
-                          serverSocket = new ServerSocket(bindPort);
+                          serverSocket = new ServerSocket();
+                          serverSocket.setReuseAddress(true);
+                          serverSocket.bind(new InetSocketAddress("0.0.0.0", bindPort));
                           while (running) {
                               Socket client = serverSocket.accept();
-                              handleClient(client);
+                              new Thread(() -> handleClient(client)).start();
                           }
                       } catch (Exception e) {
                           runOnUiThread(() -> {
@@ -701,10 +806,45 @@ jobs:
 
                       String reqLine = in.readLine();
                       if (reqLine == null || !reqLine.startsWith("GET ")) return;
-                      String rawPath = reqLine.split(" ")[1];
-                      String cleanPath = URLDecoder.decode(rawPath.split("\\?")[0], "UTF-8");
+
+                      String rangeHeader = null;
+                      String line;
+                      while ((line = in.readLine()) != null && !line.isEmpty()) {
+                          if (line.toLowerCase(Locale.ROOT).startsWith("range:")) {
+                              rangeHeader = line.substring(6).trim();
+                          }
+                      }
+
+                      String rawRequest = reqLine.split(" ")[1];
+                      String pathPart = rawRequest.split("\\?")[0];
+                      String cleanPath = URLDecoder.decode(pathPart, "UTF-8");
 
                       File root = getRootDir();
+                      if (!root.exists()) root.mkdirs();
+
+                      if (cleanPath.equals("/api/media") || cleanPath.equals("/api/index")) {
+                          String subQuery = "";
+                          if (rawRequest.contains("?")) {
+                              String q = rawRequest.substring(rawRequest.indexOf('?') + 1);
+                              for (String param : q.split("&")) {
+                                  if (param.startsWith("path=") || param.startsWith("dir=")) {
+                                      subQuery = URLDecoder.decode(param.substring(param.indexOf('=') + 1), "UTF-8");
+                                  }
+                              }
+                          }
+                          String subRel = subQuery.replaceFirst("^/+", "").replace("..", "").replaceAll("/+$", "");
+                          File targetDir = subRel.isEmpty() ? root : new File(root, subRel);
+                          if (!targetDir.exists() || !targetDir.isDirectory()) targetDir = root;
+                          String json = buildApiMediaJson(targetDir, subRel);
+                          byte[] body = json.getBytes(StandardCharsets.UTF_8);
+                          PrintWriter pw = new PrintWriter(out, false);
+                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
+                          pw.flush();
+                          out.write(body);
+                          out.flush();
+                          return;
+                      }
+
                       String rel = cleanPath.replaceFirst("^/+", "").replace("..", "").replaceAll("/+$", "");
                       File target = rel.isEmpty() ? root : new File(root, rel);
 
@@ -712,7 +852,7 @@ jobs:
                           String notFound = "<h1>404 - غير موجود</h1>";
                           byte[] body = notFound.getBytes(StandardCharsets.UTF_8);
                           PrintWriter pw = new PrintWriter(out, false);
-                          pw.print("HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.length + "\r\n\r\n");
+                          pw.print("HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
                           pw.flush();
                           out.write(body);
                           out.flush();
@@ -723,7 +863,7 @@ jobs:
                           String html = buildDirectoryPageHtml(target, rel);
                           byte[] body = html.getBytes(StandardCharsets.UTF_8);
                           PrintWriter pw = new PrintWriter(out, false);
-                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
+                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
                           pw.flush();
                           out.write(body);
                           out.flush();
@@ -731,16 +871,59 @@ jobs:
                       }
 
                       String mime = guessMime(target.getName());
-                      long len = target.length();
+                      long totalLen = target.length();
+                      long start = 0;
+                      long end = totalLen - 1;
+                      boolean isPartial = false;
+
+                      if (rangeHeader != null && rangeHeader.startsWith("bytes=") && totalLen > 0) {
+                          String spec = rangeHeader.substring(6).split(",")[0].trim();
+                          String[] bounds = spec.split("-", 2);
+                          try {
+                              if (!bounds[0].isEmpty()) {
+                                  start = Long.parseLong(bounds[0].trim());
+                              }
+                              if (bounds.length > 1 && !bounds[1].isEmpty()) {
+                                  end = Long.parseLong(bounds[1].trim());
+                              }
+                              if (bounds[0].isEmpty() && bounds.length > 1 && !bounds[1].isEmpty()) {
+                                  long suffix = Long.parseLong(bounds[1].trim());
+                                  start = Math.max(0, totalLen - suffix);
+                                  end = totalLen - 1;
+                              }
+                              if (start < 0) start = 0;
+                              if (end >= totalLen) end = totalLen - 1;
+                              if (start <= end) {
+                                  isPartial = true;
+                              }
+                          } catch (Exception ignored) {}
+                      }
+
+                      long contentLen = isPartial ? (end - start + 1) : totalLen;
                       PrintWriter pw = new PrintWriter(out, false);
-                      pw.print("HTTP/1.1 200 OK\r\nContent-Type: " + mime + "\r\nContent-Length: " + len + "\r\nConnection: close\r\n\r\n");
+                      if (isPartial) {
+                          pw.print("HTTP/1.1 206 Partial Content\r\nContent-Type: " + mime
+                                 + "\r\nAccept-Ranges: bytes\r\nContent-Range: bytes " + start + "-" + end + "/" + totalLen
+                                 + "\r\nContent-Length: " + contentLen + "\r\nConnection: close\r\n\r\n");
+                      } else {
+                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: " + mime
+                                 + "\r\nAccept-Ranges: bytes\r\nContent-Length: " + contentLen + "\r\nConnection: close\r\n\r\n");
+                      }
                       pw.flush();
 
                       try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(target))) {
-                          byte[] buf = new byte[8192];
+                          long skipped = 0;
+                          while (skipped < start) {
+                              long sCount = bis.skip(start - skipped);
+                              if (sCount <= 0) break;
+                              skipped += sCount;
+                          }
+                          byte[] buf = new byte[16384];
+                          long remaining = contentLen;
                           int n;
-                          while ((n = bis.read(buf)) != -1) {
+                          while (remaining > 0 && (n = bis.read(buf, 0, (int) Math.min(buf.length, remaining))) != -1) {
                               out.write(buf, 0, n);
+                              remaining -= n;
                           }
                           out.flush();
                       }
@@ -778,6 +961,7 @@ jobs:
               mkdir -p "MgServerProject/app/src/main/res/$density"
               cp "000.png" "MgServerProject/app/src/main/res/$density/ic_launcher.png"
               cp "000.png" "MgServerProject/app/src/main/res/$density/ic_launcher_round.png"
+              cp "000.png" "MgServerProject/app/src/main/res/$density/ic_launcher_foreground.png"
             done
           fi
 
