@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.magai.mgserver"
                   minSdk 19
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "0.1"
                   multiDexEnabled true
               }
 
@@ -167,7 +167,7 @@ jobs:
                   <TextView
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:text="Mg Server — Mag Ai"
+                      android:text="Mg Server v0.1 — Mag Ai"
                       android:textColor="#FFFFFF"
                       android:textSize="22sp"
                       android:textStyle="bold" />
@@ -265,7 +265,7 @@ jobs:
                       android:layout_height="48dp"
                       android:layout_marginTop="14dp"
                       android:backgroundTint="#E50914"
-                      android:text="حفظ وتحديث index.html"
+                      android:text="حفظ وتحديث الفهرس"
                       android:textColor="#FFFFFF"
                       android:textStyle="bold" />
 
@@ -389,7 +389,7 @@ jobs:
                       saveConfig();
                       generateIndexHtml();
                       refreshSummary();
-                      tvStatus.setText("الحالة: تم حفظ الإعدادات وتحديث index.html");
+                      tvStatus.setText("الحالة: تم حفظ الإعدادات وتحديث الفهرس");
                       if (running) {
                           stopServer();
                           startServer();
@@ -457,76 +457,187 @@ jobs:
               private void generateIndexHtml() {
                   try {
                       File root = getRootDir();
-                      String ip = etIp.getText().toString().trim();
-                      String port = etPort.getText().toString().trim();
-                      String pass = etPassword.getText().toString();
-
-                      File[] files = root.listFiles();
-                      List<File> dirs = new ArrayList<>();
-                      List<File> mediaAndApps = new ArrayList<>();
-
-                      if (files != null) {
-                          for (File f : files) {
-                              if (f.getName().equals("index.html")) continue;
-                              if (f.isDirectory()) dirs.add(f);
-                              else mediaAndApps.add(f);
-                          }
-                      }
-
-                      StringBuilder cards = new StringBuilder();
-                      for (File d : dirs) {
-                          String enc = URLEncoder.encode(d.getName(), "UTF-8");
-                          cards.append("<a class='card' href='?dir=").append(enc).append("'>📁 ")
-                               .append(escapeHtml(d.getName())).append("</a>\n");
-                      }
-
-                      for (File item : mediaAndApps) {
-                          String name = item.getName();
-                          String lower = name.toLowerCase(Locale.ROOT);
-                          String enc = URLEncoder.encode(name, "UTF-8");
-                          if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") || lower.endsWith(".3gp")) {
-                              cards.append("<div class='card'>🎬 <h3>").append(escapeHtml(name))
-                                   .append("</h3><video controls src='").append(enc).append("'></video></div>\n");
-                          } else if (lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".wav") || lower.endsWith(".ogg")) {
-                              cards.append("<div class='card'>🎵 <h3>").append(escapeHtml(name))
-                                   .append("</h3><audio controls src='").append(enc).append("'></audio></div>\n");
-                          } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) {
-                              cards.append("<div class='card'>🖼️ <h3>").append(escapeHtml(name))
-                                   .append("</h3><img src='").append(enc).append("' style='width:100%;height:140px;object-fit:cover;border-radius:8px;'></div>\n");
-                          } else if (lower.endsWith(".pdf")) {
-                              cards.append("<a class='card' href='").append(enc).append("' target='_blank'>📄 ")
-                                   .append(escapeHtml(name)).append(" (PDF)</a>\n");
-                          } else if (lower.endsWith(".apk")) {
-                              cards.append("<a class='card' href='").append(enc).append("'>📦 ")
-                                   .append(escapeHtml(name)).append(" (تثبيت APK)</a>\n");
-                          }
-                      }
-
-                      String lockBlock = "";
-                      if (!pass.isEmpty()) {
-                          lockBlock = "<div id='lock' style='position:fixed;inset:0;background:#0b0c10;display:flex;align-items:center;justify-content:center;z-index:99;'>"
-                                    + "<div style='background:#161922;padding:20px;border-radius:12px;width:270px;text-align:center;'>"
-                                    + "<h3>قفل السيرفر</h3>"
-                                    + "<input id='pw' type='password' placeholder='كلمة المرور' style='width:100%;padding:8px;margin:10px 0;border-radius:6px;border:1px solid #333;background:#0b0c10;color:#fff;'>"
-                                    + "<button onclick=\"if(document.getElementById('pw').value==='" + escapeJs(pass) + "'){document.getElementById('lock').style.display='none';}else{alert('رمز خاطئ');}\" style='width:100%;padding:8px;border:none;border-radius:6px;background:#e50914;color:#fff;font-weight:bold;'>دخول</button>"
-                                    + "</div></div>";
-                      }
-
-                      String html = "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-                                  + "<title>Mg Server (" + escapeHtml(ip) + ":" + escapeHtml(port) + ")</title>"
-                                  + "<style>body{font-family:Tahoma,sans-serif;background:#0b0c10;color:#fff;margin:0;padding:16px;}"
-                                  + ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;}"
-                                  + ".card{display:block;background:#161922;padding:12px;border-radius:10px;color:#fff;text-decoration:none;}"
-                                  + "video,audio{width:100%;margin-top:8px;border-radius:6px;}</style></head><body>"
-                                  + lockBlock
-                                  + "<h2>Mg Server — " + escapeHtml(ip) + ":" + escapeHtml(port) + "</h2>"
-                                  + "<div class='grid'>" + cards + "</div></body></html>";
-
+                      String html = buildDirectoryPageHtml(root, "");
                       File outFile = new File(root, "index.html");
                       try (FileOutputStream fos = new FileOutputStream(outFile)) {
                           fos.write(html.getBytes(StandardCharsets.UTF_8));
                       }
                   } catch (Exception ignored) {}
+              }
+
+              private String buildDirectoryPageHtml(File dir, String relPath) {
+                  try {
+                      String ip = etIp.getText().toString().trim();
+                      String port = etPort.getText().toString().trim();
+                      String pass = etPassword.getText().toString();
+
+                      File[] files = dir.listFiles();
+                      List<File> folders = new ArrayList<>();
+                      List<File> videos = new ArrayList<>();
+                      List<File> audios = new ArrayList<>();
+                      List<File> images = new ArrayList<>();
+                      List<File> pdfs = new ArrayList<>();
+                      List<File> apks = new ArrayList<>();
+
+                      if (files != null) {
+                          for (File f : files) {
+                              if (f.getName().equals("index.html")) continue;
+                              if (f.isDirectory()) {
+                                  folders.add(f);
+                              } else {
+                                  String lower = f.getName().toLowerCase(Locale.ROOT);
+                                  if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") || lower.endsWith(".3gp")) {
+                                      videos.add(f);
+                                  } else if (lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".wav") || lower.endsWith(".ogg")) {
+                                      audios.add(f);
+                                  } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) {
+                                      images.add(f);
+                                  } else if (lower.endsWith(".pdf")) {
+                                      pdfs.add(f);
+                                  } else if (lower.endsWith(".apk")) {
+                                      apks.add(f);
+                                  }
+                              }
+                          }
+                      }
+
+                      String basePrefix = relPath.isEmpty() ? "" : (encodeRel(relPath) + "/");
+
+                      StringBuilder folderCards = new StringBuilder();
+                      if (!relPath.isEmpty()) {
+                          String parentRel = "";
+                          int idx = relPath.lastIndexOf('/');
+                          if (idx > 0) parentRel = relPath.substring(0, idx);
+                          String backHref = parentRel.isEmpty() ? "/" : ("/" + encodeRel(parentRel) + "/");
+                          folderCards.append("<a class='card back-card' href='").append(backHref).append("'>⬅️ العودة للخلف</a>\n");
+                      }
+                      for (File d : folders) {
+                          String href = "/" + basePrefix + URLEncoder.encode(d.getName(), "UTF-8") + "/";
+                          folderCards.append("<a class='card folder-card' href='").append(href).append("'>📁 <span>")
+                                     .append(escapeHtml(d.getName())).append("</span></a>\n");
+                      }
+
+                      StringBuilder videoCards = new StringBuilder();
+                      for (File v : videos) {
+                          String src = "/" + basePrefix + URLEncoder.encode(v.getName(), "UTF-8");
+                          videoCards.append("<div class='card media-card'>🎬 <div class='title'>").append(escapeHtml(v.getName()))
+                                    .append("</div><video controls preload='metadata' src='").append(src).append("'></video></div>\n");
+                      }
+
+                      StringBuilder audioCards = new StringBuilder();
+                      for (File a : audios) {
+                          String src = "/" + basePrefix + URLEncoder.encode(a.getName(), "UTF-8");
+                          audioCards.append("<div class='card media-card'>🎵 <div class='title'>").append(escapeHtml(a.getName()))
+                                    .append("</div><audio controls preload='metadata' src='").append(src).append("'></audio></div>\n");
+                      }
+
+                      StringBuilder imageCards = new StringBuilder();
+                      for (File img : images) {
+                          String src = "/" + basePrefix + URLEncoder.encode(img.getName(), "UTF-8");
+                          imageCards.append("<div class='card media-card'>🖼️ <div class='title'>").append(escapeHtml(img.getName()))
+                                    .append("</div><img loading='lazy' src='").append(src).append("' alt='").append(escapeHtml(img.getName())).append("'></div>\n");
+                      }
+
+                      StringBuilder pdfCards = new StringBuilder();
+                      for (File p : pdfs) {
+                          String href = "/" + basePrefix + URLEncoder.encode(p.getName(), "UTF-8");
+                          pdfCards.append("<a class='card doc-card' href='").append(href).append("' target='_blank'>📄 <span>")
+                                  .append(escapeHtml(p.getName())).append("</span></a>\n");
+                      }
+
+                      StringBuilder apkCards = new StringBuilder();
+                      for (File k : apks) {
+                          String href = "/" + basePrefix + URLEncoder.encode(k.getName(), "UTF-8");
+                          apkCards.append("<a class='card apk-card' href='").append(href).append("'>📦 <span>")
+                                  .append(escapeHtml(k.getName())).append("</span></a>\n");
+                      }
+
+                      StringBuilder sections = new StringBuilder();
+                      sections.append(renderSection("folders", "المجلدات", folderCards.toString()));
+                      sections.append(renderSection("videos", "الفيديوهات", videoCards.toString()));
+                      sections.append(renderSection("audios", "الصوتيات", audioCards.toString()));
+                      sections.append(renderSection("images", "الصور", imageCards.toString()));
+                      sections.append(renderSection("pdfs", "ملفات PDF", pdfCards.toString()));
+                      sections.append(renderSection("apks", "ملفات APK", apkCards.toString()));
+
+                      String lockBlock = "";
+                      if (!pass.isEmpty()) {
+                          lockBlock = "<div id='lock' class='lock-overlay'><div class='lock-box'>"
+                                    + "<h3>قفل Mg Server</h3>"
+                                    + "<input id='pw' type='password' placeholder='أدخل كلمة المرور'>"
+                                    + "<button onclick=\"if(document.getElementById('pw').value==='" + escapeJs(pass) + "'){document.getElementById('lock').style.display='none';}else{alert('كلمة المرور غير صحيحة');}\">دخول</button>"
+                                    + "</div></div>";
+                      }
+
+                      String currentTitle = relPath.isEmpty() ? "الرئيسية" : relPath;
+
+                      return "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
+                           + "<title>Mg Server v0.1 — " + escapeHtml(currentTitle) + "</title>"
+                           + "<style>"
+                           + ":root{--bg:#090b10;--card:#131722;--accent:#e50914;--glow:rgba(229,9,20,0.22);--cyan:rgba(56,189,248,0.18);}"
+                           + "*{box-sizing:border-box;}"
+                           + "body{font-family:Tahoma,sans-serif;background:var(--bg);color:#f3f4f6;margin:0;padding:18px;overflow-x:hidden;transition:background 0.4s ease;}"
+                           + ".ambient-glow{position:fixed;inset:-20%;pointer-events:none;z-index:-1;background:radial-gradient(circle at 50% var(--glow-y,20%),var(--glow),transparent 42%),radial-gradient(circle at 18% var(--glow-y2,70%),var(--cyan),transparent 45%);transition:background 0.25s ease-out;}"
+                           + ".topbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;background:rgba(19,23,34,0.88);backdrop-filter:blur(10px);padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.07);margin-bottom:16px;}"
+                           + ".badge{background:rgba(229,9,20,0.18);color:#ff6b72;padding:4px 10px;border-radius:999px;font-size:12px;}"
+                           + ".cats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}"
+                           + ".cat-btn{background:#131722;color:#d1d5db;border:1px solid rgba(255,255,255,0.08);padding:8px 14px;border-radius:999px;cursor:pointer;font-size:13px;transition:transform 0.22s ease,background 0.22s ease,box-shadow 0.22s ease;}"
+                           + ".cat-btn:hover,.cat-btn.active{background:#e50914;color:#fff;transform:translateY(-2px);box-shadow:0 8px 20px rgba(229,9,20,0.35);}"
+                           + ".sec{margin-bottom:24px;opacity:0;transform:translateY(18px);transition:opacity 0.5s ease,transform 0.5s ease;}"
+                           + ".sec.visible{opacity:1;transform:translateY(0);}"
+                           + ".sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.08);}"
+                           + ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:12px;}"
+                           + ".card{display:block;background:var(--card);padding:12px;border-radius:12px;color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,0.06);transition:transform 0.25s ease,box-shadow 0.25s ease,border-color 0.25s ease;}"
+                           + ".card:hover{transform:translateY(-4px) scale(1.01);border-color:rgba(255,255,255,0.22);box-shadow:0 12px 26px rgba(0,0,0,0.45),0 0 18px var(--glow);}"
+                           + ".title{margin:6px 0 8px;font-size:13px;word-break:break-word;}"
+                           + "video,audio{width:100%;border-radius:8px;margin-top:4px;}"
+                           + "img{width:100%;height:145px;object-fit:cover;border-radius:8px;}"
+                           + ".lock-overlay{position:fixed;inset:0;background:#090b10;display:flex;align-items:center;justify-content:center;z-index:99;}"
+                           + ".lock-box{background:#131722;padding:22px;border-radius:14px;width:280px;text-align:center;border:1px solid rgba(255,255,255,0.1);}"
+                           + ".lock-box input{width:100%;padding:9px;margin:10px 0;border-radius:8px;border:1px solid #2d3548;background:#090b10;color:#fff;}"
+                           + ".lock-box button{width:100%;padding:9px;border:none;border-radius:8px;background:#e50914;color:#fff;font-weight:bold;cursor:pointer;}"
+                           + "</style></head><body>"
+                           + "<div class='ambient-glow' id='glow'></div>"
+                           + lockBlock
+                           + "<div class='topbar'><div><strong>Mg Server v0.1</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
+                           + "<div style='font-size:13px;color:#9ca3af;'>المسار: /" + escapeHtml(currentTitle) + "</div></div>"
+                           + "<div class='cats'>"
+                           + "<button class='cat-btn active' onclick=\"filterCat('all',this)\">الكل</button>"
+                           + "<button class='cat-btn' onclick=\"filterCat('folders',this)\">المجلدات</button>"
+                           + "<button class='cat-btn' onclick=\"filterCat('videos',this)\">الفيديوهات</button>"
+                           + "<button class='cat-btn' onclick=\"filterCat('audios',this)\">الصوتيات</button>"
+                           + "<button class='cat-btn' onclick=\"filterCat('images',this)\">الصور</button>"
+                           + "<button class='cat-btn' onclick=\"filterCat('pdfs',this)\">PDF</button>"
+                           + "<button class='cat-btn' onclick=\"filterCat('apks',this)\">APK</button>"
+                           + "</div>"
+                           + sections
+                           + "<script>"
+                           + "const glow=document.getElementById('glow');"
+                           + "window.addEventListener('scroll',()=>{const max=Math.max(1,document.body.scrollHeight-window.innerHeight);const p=window.scrollY/max;glow.style.setProperty('--glow-y',(15+p*65)+'%');glow.style.setProperty('--glow-y2',(80-p*60)+'%');revealSections();},{passive:true});"
+                           + "function revealSections(){document.querySelectorAll('.sec').forEach(s=>{const r=s.getBoundingClientRect();if(r.top<window.innerHeight*0.95){s.classList.add('visible');}});}"
+                           + "function filterCat(cat,btn){document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');"
+                           + "document.querySelectorAll('.sec').forEach(s=>{if(cat==='all'||s.dataset.cat===cat){s.style.display='block';setTimeout(()=>s.classList.add('visible'),30);}else{s.style.display='none';}});}"
+                           + "setTimeout(revealSections,60);"
+                           + "</script></body></html>";
+                  } catch (Exception e) {
+                      return "<h1>تعذر توليد صفحة المجلد</h1>";
+                  }
+              }
+
+              private String renderSection(String cat, String heading, String content) {
+                  if (content == null || content.trim().isEmpty()) return "";
+                  return "<section class='sec' data-cat='" + cat + "'><div class='sec-head'><h3>" + heading + "</h3></div><div class='grid'>" + content + "</div></section>\n";
+              }
+
+              private String encodeRel(String rel) throws Exception {
+                  String[] parts = rel.split("/");
+                  StringBuilder sb = new StringBuilder();
+                  for (int i = 0; i < parts.length; i++) {
+                      if (parts[i].isEmpty()) continue;
+                      if (sb.length() > 0) sb.append("/");
+                      sb.append(URLEncoder.encode(parts[i], "UTF-8"));
+                  }
+                  return sb.toString();
               }
 
               private String escapeHtml(String s) {
@@ -542,7 +653,7 @@ jobs:
                   String port = etPort.getText().toString().trim();
                   String folder = getRootDir().getAbsolutePath();
                   String passState = etPassword.getText().toString().isEmpty() ? "بدون كلمة مرور" : "محمي بكلمة مرور";
-                  tvSummary.setText("الرابط: http://" + ip + ":" + port + "\nالمجلد: " + folder + "\nملف الفهرس: " + folder + "/index.html\nالحماية: " + passState);
+                  tvSummary.setText("الإصدار: v0.1\nالرابط: http://" + ip + ":" + port + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
               }
 
               private void startServer() {
@@ -591,22 +702,28 @@ jobs:
                       String reqLine = in.readLine();
                       if (reqLine == null || !reqLine.startsWith("GET ")) return;
                       String rawPath = reqLine.split(" ")[1];
-                      String cleanPath = rawPath.split("\\?")[0];
-                      cleanPath = URLDecoder.decode(cleanPath, "UTF-8");
+                      String cleanPath = URLDecoder.decode(rawPath.split("\\?")[0], "UTF-8");
 
                       File root = getRootDir();
-                      String rel = cleanPath.replaceFirst("^/+", "").replace("..", "");
-                      File target = rel.isEmpty() ? new File(root, "index.html") : new File(root, rel);
-                      if (target.isDirectory()) {
-                          File subIndex = new File(target, "index.html");
-                          target = subIndex.exists() ? subIndex : target;
-                      }
+                      String rel = cleanPath.replaceFirst("^/+", "").replace("..", "").replaceAll("/+$", "");
+                      File target = rel.isEmpty() ? root : new File(root, rel);
 
-                      if (!target.exists() || target.isDirectory()) {
-                          String notFound = "<h1>404 - الملف غير موجود</h1>";
+                      if (!target.exists()) {
+                          String notFound = "<h1>404 - غير موجود</h1>";
                           byte[] body = notFound.getBytes(StandardCharsets.UTF_8);
                           PrintWriter pw = new PrintWriter(out, false);
                           pw.print("HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.length + "\r\n\r\n");
+                          pw.flush();
+                          out.write(body);
+                          out.flush();
+                          return;
+                      }
+
+                      if (target.isDirectory()) {
+                          String html = buildDirectoryPageHtml(target, rel);
+                          byte[] body = html.getBytes(StandardCharsets.UTF_8);
+                          PrintWriter pw = new PrintWriter(out, false);
+                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
                           pw.flush();
                           out.write(body);
                           out.flush();
@@ -636,10 +753,13 @@ jobs:
                   if (l.endsWith(".apk")) return "application/vnd.android.package-archive";
                   if (l.endsWith(".pdf")) return "application/pdf";
                   if (l.endsWith(".mp4")) return "video/mp4";
+                  if (l.endsWith(".mkv")) return "video/x-matroska";
+                  if (l.endsWith(".webm")) return "video/webm";
                   if (l.endsWith(".mp3")) return "audio/mpeg";
                   if (l.endsWith(".m4a")) return "audio/mp4";
                   if (l.endsWith(".jpg") || l.endsWith(".jpeg")) return "image/jpeg";
                   if (l.endsWith(".png")) return "image/png";
+                  if (l.endsWith(".webp")) return "image/webp";
                   return "application/octet-stream";
               }
 
