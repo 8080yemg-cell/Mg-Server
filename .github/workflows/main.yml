@@ -32,12 +32,20 @@ jobs:
           mkdir -p MgServerProject/app/src/main/java/com/magai/mgserver
           mkdir -p MgServerProject/app/src/main/res/layout
           mkdir -p MgServerProject/app/src/main/res/values
+          mkdir -p MgServerProject/gradle/wrapper
 
           cat << 'EOF' > MgServerProject/gradle.properties
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
-          android.enableJetifier=true
           android.nonTransitiveRClass=false
+          EOF
+
+          cat << 'EOF' > MgServerProject/gradle/wrapper/gradle-wrapper.properties
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
           EOF
 
           cat << 'EOF' > MgServerProject/settings.gradle
@@ -120,16 +128,17 @@ jobs:
 
           cat << 'EOF' > MgServerProject/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
 
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:targetApi="33" />
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:targetApi="33" />
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:targetApi="33" />
 
               <application
                   android:allowBackup="true"
