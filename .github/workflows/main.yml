@@ -76,8 +76,8 @@ jobs:
                   applicationId "com.magai.mgserver"
                   minSdk 19
                   targetSdk 34
-                  versionCode 3
-                  versionName "0.2"
+                  versionCode 16
+                  versionName "0.1.16"
                   multiDexEnabled true
               }
 
@@ -192,7 +192,7 @@ jobs:
                   <TextView
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:text="Mg Server v0.2 — Mag Ai"
+                      android:text="Mg Server v0.1.16 — Mag Ai"
                       android:textColor="#FFFFFF"
                       android:textSize="22sp"
                       android:textStyle="bold" />
@@ -210,7 +210,7 @@ jobs:
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="14dp"
-                      android:text="عنوان IP المرجعي / الشبكة"
+                      android:text="عنوان IP المرجعي / الشبكة (قابل للتعديل)"
                       android:textColor="#C5CADB"
                       android:textSize="13sp" />
 
@@ -220,7 +220,7 @@ jobs:
                       android:layout_height="46dp"
                       android:layout_marginTop="4dp"
                       android:background="#161922"
-                      android:hint="192.168.1.200"
+                      android:hint="192.168.1.222"
                       android:inputType="text"
                       android:padding="10dp"
                       android:textColor="#FFFFFF"
@@ -323,6 +323,16 @@ jobs:
                           android:textStyle="bold" />
                   </LinearLayout>
 
+                  <Button
+                      android:id="@+id/btnLogoutSession"
+                      android:layout_width="match_parent"
+                      android:layout_height="44dp"
+                      android:layout_marginTop="10dp"
+                      android:backgroundTint="#3B2554"
+                      android:text="تسجيل خروج (إنهاء جلسة كلمة المرور)"
+                      android:textColor="#FFFFFF"
+                      android:textStyle="bold" />
+
                   <TextView
                       android:id="@+id/tvSummary"
                       android:layout_width="match_parent"
@@ -377,8 +387,13 @@ jobs:
           import java.util.List;
           import java.util.Locale;
           import java.util.Set;
+          import java.util.UUID;
 
           public class MainActivity extends AppCompatActivity {
+
+              private static final String APP_VERSION = "0.1.16";
+              private static final String DEFAULT_IP = "192.168.1.222";
+              private static final String SESSION_COOKIE_NAME = "mg_session";
 
               private EditText etIp, etPort, etPassword, etFolder;
               private TextView tvStatus, tvSummary;
@@ -387,6 +402,7 @@ jobs:
               private ServerSocket serverSocket;
               private Thread serverThread;
               private volatile boolean running = false;
+              private volatile String activeSessionToken = null;
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
@@ -405,16 +421,16 @@ jobs:
                   Button btnSaveUpdate = findViewById(R.id.btnSaveUpdate);
                   Button btnStart = findViewById(R.id.btnStart);
                   Button btnStop = findViewById(R.id.btnStop);
+                  Button btnLogoutSession = findViewById(R.id.btnLogoutSession);
 
                   String defaultDir = new File(Environment.getExternalStorageDirectory(), "MG Server").getAbsolutePath();
-                  List<String> ips = detectAllLocalIps();
-                  String bestIp = ips.isEmpty() ? "192.168.1.200" : ips.get(0);
 
-                  etIp.setText(prefs.getString("ip", bestIp));
+                  etIp.setText(prefs.getString("ip", DEFAULT_IP));
                   etPort.setText(prefs.getString("port", "8080"));
                   etPassword.setText(prefs.getString("password", ""));
                   etFolder.setText(prefs.getString("folder", defaultDir));
 
+                  syncSessionState();
                   requestStorageIfNeeded();
                   ensureRootAndIndex();
                   refreshSummary();
@@ -422,6 +438,7 @@ jobs:
                   btnSaveUpdate.setOnClickListener(v -> {
                       requestStorageIfNeeded();
                       saveConfig();
+                      syncSessionState();
                       boolean ok = ensureRootAndIndex();
                       refreshSummary();
                       tvStatus.setText(ok ? "الحالة: تم حفظ الإعدادات وتحديث الفهرس" : "الحالة: تعذر إنشاء مجلد MG Server — تحقق من صلاحية التخزين");
@@ -435,6 +452,7 @@ jobs:
                   btnStart.setOnClickListener(v -> {
                       requestStorageIfNeeded();
                       saveConfig();
+                      syncSessionState();
                       ensureRootAndIndex();
                       startServer();
                       refreshSummary();
@@ -444,6 +462,44 @@ jobs:
                       stopServer();
                       refreshSummary();
                   });
+
+                  btnLogoutSession.setOnClickListener(v -> {
+                      clearActiveSession();
+                      refreshSummary();
+                      tvStatus.setText("الحالة: تم تسجيل الخروج وإنهاء الجلسة");
+                      tvStatus.setTextColor(0xFFFACC15);
+                  });
+              }
+
+              private void syncSessionState() {
+                  String pass = etPassword.getText().toString();
+                  if (pass.isEmpty()) {
+                      activeSessionToken = null;
+                  } else if (activeSessionToken == null) {
+                      activeSessionToken = UUID.randomUUID().toString();
+                  }
+              }
+
+              private void clearActiveSession() {
+                  String pass = etPassword.getText().toString();
+                  activeSessionToken = pass.isEmpty() ? null : UUID.randomUUID().toString();
+              }
+
+              private boolean isPasswordEnabled() {
+                  return !etPassword.getText().toString().isEmpty();
+              }
+
+              private boolean hasValidSessionCookie(String cookieHeader) {
+                  if (!isPasswordEnabled()) return true;
+                  if (activeSessionToken == null || cookieHeader == null) return false;
+                  String[] parts = cookieHeader.split(";");
+                  for (String p : parts) {
+                      String trimmed = p.trim();
+                      if (trimmed.equals(SESSION_COOKIE_NAME + "=" + activeSessionToken)) {
+                          return true;
+                      }
+                  }
+                  return false;
               }
 
               private void requestStorageIfNeeded() {
@@ -490,8 +546,10 @@ jobs:
               }
 
               private void saveConfig() {
+                  String ipVal = etIp.getText().toString().trim();
+                  if (ipVal.isEmpty()) ipVal = DEFAULT_IP;
                   prefs.edit()
-                          .putString("ip", etIp.getText().toString().trim())
+                          .putString("ip", ipVal)
                           .putString("port", etPort.getText().toString().trim())
                           .putString("password", etPassword.getText().toString())
                           .putString("folder", etFolder.getText().toString().trim())
@@ -512,7 +570,7 @@ jobs:
                       if (!root.exists() && !root.mkdirs()) {
                           return false;
                       }
-                      String html = buildDirectoryPageHtml(root, "");
+                      String html = buildDirectoryPageHtml(root, "", false);
                       File outFile = new File(root, "index.html");
                       try (FileOutputStream fos = new FileOutputStream(outFile)) {
                           fos.write(html.getBytes(StandardCharsets.UTF_8));
@@ -557,7 +615,7 @@ jobs:
                           }
                       }
 
-                      return "{\"server\":\"Mg Server v0.2\",\"path\":\"/" + escapeJson(relPath)
+                      return "{\"server\":\"Mg Server v" + APP_VERSION + "\",\"path\":\"/" + escapeJson(relPath)
                            + "\",\"folders\":[" + String.join(",", foldersJson)
                            + "],\"items\":[" + String.join(",", itemsJson) + "]}";
                   } catch (Exception e) {
@@ -565,9 +623,10 @@ jobs:
                   }
               }
 
-              private String buildDirectoryPageHtml(File dir, String relPath) {
+              private String buildDirectoryPageHtml(File dir, String relPath, boolean unlockedInSession) {
                   try {
                       String ip = etIp.getText().toString().trim();
+                      if (ip.isEmpty()) ip = DEFAULT_IP;
                       String port = etPort.getText().toString().trim();
                       String pass = etPassword.getText().toString();
 
@@ -661,18 +720,18 @@ jobs:
                       sections.append(renderSection("apks", "ملفات APK", apkCards.toString()));
 
                       String lockBlock = "";
-                      if (!pass.isEmpty()) {
+                      if (!pass.isEmpty() && !unlockedInSession) {
                           lockBlock = "<div id='lock' class='lock-overlay'><div class='lock-box'>"
                                     + "<h3>قفل Mg Server</h3>"
                                     + "<input id='pw' type='password' placeholder='أدخل كلمة المرور'>"
-                                    + "<button onclick=\"if(document.getElementById('pw').value==='" + escapeJs(pass) + "'){document.getElementById('lock').style.display='none';}else{alert('كلمة المرور غير صحيحة');}\">دخول</button>"
+                                    + "<button onclick=\"submitSessionLogin()\">دخول</button>"
                                     + "</div></div>";
                       }
 
                       String currentTitle = relPath.isEmpty() ? "MG Server" : relPath;
 
                       return "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-                           + "<title>Mg Server v0.2 — " + escapeHtml(currentTitle) + "</title>"
+                           + "<title>Mg Server v" + APP_VERSION + " — " + escapeHtml(currentTitle) + "</title>"
                            + "<style>"
                            + ":root{--bg:#090b10;--card:#131722;--accent:#e50914;--glow:rgba(229,9,20,0.24);--cyan:rgba(56,189,248,0.20);}"
                            + "*{box-sizing:border-box;}"
@@ -680,6 +739,7 @@ jobs:
                            + ".ambient-glow{position:fixed;inset:-20%;pointer-events:none;z-index:-1;background:radial-gradient(circle at 50% var(--glow-y,20%),var(--glow),transparent 42%),radial-gradient(circle at 18% var(--glow-y2,70%),var(--cyan),transparent 45%);transition:background 0.2s ease-out;}"
                            + ".topbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;background:rgba(19,23,34,0.88);padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.07);margin-bottom:16px;}"
                            + ".badge{background:rgba(229,9,20,0.18);color:#ff6b72;padding:4px 10px;border-radius:999px;font-size:12px;}"
+                           + ".logout-btn{background:#2a183b;color:#f3e8ff;border:1px solid rgba(255,255,255,0.14);padding:6px 12px;border-radius:999px;cursor:pointer;font-size:12px;}"
                            + ".cats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}"
                            + ".cat-btn{background:#131722;color:#d1d5db;border:1px solid rgba(255,255,255,0.08);padding:8px 14px;border-radius:999px;cursor:pointer;font-size:13px;transition:transform 0.22s ease,background 0.22s ease,box-shadow 0.22s ease;}"
                            + ".cat-btn:hover,.cat-btn.active{background:#e50914;color:#fff;transform:translateY(-2px);box-shadow:0 8px 20px rgba(229,9,20,0.35);}"
@@ -698,8 +758,10 @@ jobs:
                            + "</style></head><body>"
                            + "<div class='ambient-glow' id='glow'></div>"
                            + lockBlock
-                           + "<div class='topbar'><div><strong>Mg Server v0.2</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
-                           + "<div style='font-size:13px;color:#9ca3af;'>المسار: /" + escapeHtml(currentTitle) + "</div></div>"
+                           + "<div class='topbar'><div><strong>Mg Server v" + APP_VERSION + "</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
+                           + "<div style='display:flex;align-items:center;gap:10px;'><span style='font-size:13px;color:#9ca3af;'>المسار: /" + escapeHtml(currentTitle) + "</span>"
+                           + (!pass.isEmpty() ? "<button class='logout-btn' onclick='doWebLogout()'>تسجيل خروج</button>" : "")
+                           + "</div></div>"
                            + "<div class='cats'>"
                            + "<button class='cat-btn active' onclick=\"filterCat('all',this)\">الكل</button>"
                            + "<button class='cat-btn' onclick=\"filterCat('folders',this)\">المجلدات</button>"
@@ -715,6 +777,8 @@ jobs:
                            + "window.addEventListener('scroll',()=>{const max=Math.max(1,document.body.scrollHeight-window.innerHeight);const p=window.scrollY/max;glow.style.setProperty('--glow-y',(15+p*65)+'%');glow.style.setProperty('--glow-y2',(80-p*60)+'%');},{passive:true});"
                            + "function filterCat(cat,btn){document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');"
                            + "document.querySelectorAll('.sec').forEach(s=>{s.style.display=(cat==='all'||s.dataset.cat===cat)?'block':'none';});}"
+                           + "function submitSessionLogin(){const v=document.getElementById('pw').value;fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v})}).then(r=>{if(r.ok){window.location.reload();}else{alert('كلمة المرور غير صحيحة');}});}"
+                           + "function doWebLogout(){fetch('/api/auth/logout',{method:'POST'}).then(()=>{window.location.reload();});}"
                            + "</script></body></html>";
                   } catch (Exception e) {
                       return "<h1>تعذر توليد صفحة المجلد</h1>";
@@ -749,18 +813,43 @@ jobs:
                   return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
               }
 
+              private String extractJsonPassword(String rawBody) {
+                  if (rawBody == null) return "";
+                  int idx = rawBody.indexOf("\"password\"");
+                  if (idx < 0) return "";
+                  int colon = rawBody.indexOf(':', idx);
+                  if (colon < 0) return "";
+                  int firstQuote = rawBody.indexOf('"', colon + 1);
+                  if (firstQuote < 0) return "";
+                  StringBuilder sb = new StringBuilder();
+                  for (int i = firstQuote + 1; i < rawBody.length(); i++) {
+                      char c = rawBody.charAt(i);
+                      if (c == '\\' && i + 1 < rawBody.length()) {
+                          i++;
+                          sb.append(rawBody.charAt(i));
+                      } else if (c == '"') {
+                          break;
+                      } else {
+                          sb.append(c);
+                      }
+                  }
+                  return sb.toString();
+              }
+
               private void refreshSummary() {
                   String ip = etIp.getText().toString().trim();
+                  if (ip.isEmpty()) ip = DEFAULT_IP;
                   String port = etPort.getText().toString().trim();
                   String folder = getRootDir().getAbsolutePath();
-                  String passState = etPassword.getText().toString().isEmpty() ? "بدون كلمة مرور" : "محمي بكلمة مرور";
+                  String passState = etPassword.getText().toString().isEmpty() ? "بدون كلمة مرور" : "محمي بكلمة مرور (جلسة حتى الخروج)";
                   List<String> allIps = detectAllLocalIps();
                   String ipsText = allIps.isEmpty() ? ip : String.join(" , ", allIps);
-                  tvSummary.setText("الإصدار: v0.2\nالرابط: http://" + ip + ":" + port + "\nعناوين IP المتاحة: " + ipsText + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
+                  tvSummary.setText("الإصدار: v" + APP_VERSION + "\nالرابط: http://" + ip + ":" + port + "\nعناوين IP المتاحة: " + ipsText + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
               }
 
               private void startServer() {
                   if (running) return;
+                  syncSessionState();
                   int port = 8080;
                   try {
                       port = Integer.parseInt(etPort.getText().toString().trim());
@@ -792,6 +881,7 @@ jobs:
 
               private void stopServer() {
                   running = false;
+                  clearActiveSession();
                   try {
                       if (serverSocket != null) serverSocket.close();
                   } catch (Exception ignored) {}
@@ -805,24 +895,102 @@ jobs:
                        OutputStream out = s.getOutputStream()) {
 
                       String reqLine = in.readLine();
-                      if (reqLine == null || !reqLine.startsWith("GET ")) return;
+                      if (reqLine == null) return;
+                      String[] reqParts = reqLine.split(" ");
+                      if (reqParts.length < 2) return;
+                      String method = reqParts[0];
+                      if (!method.equals("GET") && !method.equals("POST")) return;
 
                       String rangeHeader = null;
+                      String cookieHeader = null;
+                      int contentLength = 0;
                       String line;
                       while ((line = in.readLine()) != null && !line.isEmpty()) {
-                          if (line.toLowerCase(Locale.ROOT).startsWith("range:")) {
+                          String lowerLine = line.toLowerCase(Locale.ROOT);
+                          if (lowerLine.startsWith("range:")) {
                               rangeHeader = line.substring(6).trim();
+                          } else if (lowerLine.startsWith("cookie:")) {
+                              cookieHeader = line.substring(7).trim();
+                          } else if (lowerLine.startsWith("content-length:")) {
+                              try {
+                                  contentLength = Integer.parseInt(line.substring(15).trim());
+                              } catch (Exception ignored) {}
                           }
                       }
 
-                      String rawRequest = reqLine.split(" ")[1];
+                      String rawRequest = reqParts[1];
                       String pathPart = rawRequest.split("\\?")[0];
                       String cleanPath = URLDecoder.decode(pathPart, "UTF-8");
+
+                      if (cleanPath.equals("/api/auth/login") && method.equals("POST")) {
+                          char[] buf = new char[Math.max(0, Math.min(contentLength, 4096))];
+                          int readTotal = 0;
+                          while (readTotal < buf.length) {
+                              int r = in.read(buf, readTotal, buf.length - readTotal);
+                              if (r < 0) break;
+                              readTotal += r;
+                          }
+                          String bodyStr = new String(buf, 0, readTotal);
+                          String suppliedPass = extractJsonPassword(bodyStr);
+                          String configuredPass = etPassword.getText().toString();
+
+                          if (configuredPass.isEmpty() || configuredPass.equals(suppliedPass)) {
+                              if (!configuredPass.isEmpty() && activeSessionToken == null) {
+                                  activeSessionToken = UUID.randomUUID().toString();
+                              }
+                              String cookieLine = activeSessionToken != null
+                                      ? ("Set-Cookie: " + SESSION_COOKIE_NAME + "=" + activeSessionToken + "; Path=/; HttpOnly; SameSite=Lax\r\n")
+                                      : "";
+                              byte[] okBody = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+                              PrintWriter pw = new PrintWriter(out, false);
+                              pw.print("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
+                                     + cookieLine
+                                     + "Cache-Control: no-store\r\nContent-Length: " + okBody.length + "\r\nConnection: close\r\n\r\n");
+                              pw.flush();
+                              out.write(okBody);
+                              out.flush();
+                          } else {
+                              byte[] errBody = "{\"ok\":false}".getBytes(StandardCharsets.UTF_8);
+                              PrintWriter pw = new PrintWriter(out, false);
+                              pw.print("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json; charset=utf-8\r\n"
+                                     + "Cache-Control: no-store\r\nContent-Length: " + errBody.length + "\r\nConnection: close\r\n\r\n");
+                              pw.flush();
+                              out.write(errBody);
+                              out.flush();
+                          }
+                          return;
+                      }
+
+                      if (cleanPath.equals("/api/auth/logout") && method.equals("POST")) {
+                          clearActiveSession();
+                          byte[] outBody = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+                          PrintWriter pw = new PrintWriter(out, false);
+                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n"
+                                 + "Set-Cookie: " + SESSION_COOKIE_NAME + "=; Path=/; Max-Age=0\r\n"
+                                 + "Cache-Control: no-store\r\nContent-Length: " + outBody.length + "\r\nConnection: close\r\n\r\n");
+                          pw.flush();
+                          out.write(outBody);
+                          out.flush();
+                          return;
+                      }
+
+                      if (!method.equals("GET")) return;
+
+                      boolean unlocked = hasValidSessionCookie(cookieHeader);
 
                       File root = getRootDir();
                       if (!root.exists()) root.mkdirs();
 
                       if (cleanPath.equals("/api/media") || cleanPath.equals("/api/index")) {
+                          if (!unlocked) {
+                              byte[] lockJson = "{\"locked\":true,\"folders\":[],\"items\":[]}".getBytes(StandardCharsets.UTF_8);
+                              PrintWriter pw = new PrintWriter(out, false);
+                              pw.print("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: " + lockJson.length + "\r\nConnection: close\r\n\r\n");
+                              pw.flush();
+                              out.write(lockJson);
+                              out.flush();
+                              return;
+                          }
                           String subQuery = "";
                           if (rawRequest.contains("?")) {
                               String q = rawRequest.substring(rawRequest.indexOf('?') + 1);
@@ -860,12 +1028,22 @@ jobs:
                       }
 
                       if (target.isDirectory()) {
-                          String html = buildDirectoryPageHtml(target, rel);
+                          String html = buildDirectoryPageHtml(target, rel, unlocked);
                           byte[] body = html.getBytes(StandardCharsets.UTF_8);
                           PrintWriter pw = new PrintWriter(out, false);
                           pw.print("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
                           pw.flush();
                           out.write(body);
+                          out.flush();
+                          return;
+                      }
+
+                      if (!unlocked) {
+                          byte[] unauth = "<h1>401 - يتطلب تسجيل الدخول</h1>".getBytes(StandardCharsets.UTF_8);
+                          PrintWriter pw = new PrintWriter(out, false);
+                          pw.print("HTTP/1.1 401 Unauthorized\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: " + unauth.length + "\r\nConnection: close\r\n\r\n");
+                          pw.flush();
+                          out.write(unauth);
                           out.flush();
                           return;
                       }
