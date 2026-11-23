@@ -1159,8 +1159,12 @@ jobs:
             exit $EXIT_CODE
           fi
 
+      - name: Rename Mg Server APK
+        run: |
+          cp "MgServerProject/app/build/outputs/apk/debug/app-debug.apk" "MgServerProject/app/build/outputs/apk/debug/MG Server v0.1.16.apk"
+
       - name: Upload Mg Server APK
         uses: actions/upload-artifact@v4
         with:
           name: mg-server-native-apk
-          path: MgServerProject/app/build/outputs/apk/debug/mg-server.apk
+          path: MgServerProject/app/build/outputs/apk/debug/MG Server v0.1.16.apk
