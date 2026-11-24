@@ -76,8 +76,8 @@ jobs:
                   applicationId "com.magai.mgserver"
                   minSdk 19
                   targetSdk 34
-                  versionCode 16
-                  versionName "0.1.16"
+                  versionCode 17
+                  versionName "0.1.17"
                   multiDexEnabled true
               }
 
@@ -192,7 +192,7 @@ jobs:
                   <TextView
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:text="Mg Server v0.1.16 — Mag"
+                      android:text="Mg Server v0.1.17 — Mag"
                       android:textColor="#FFFFFF"
                       android:textSize="22sp"
                       android:textStyle="bold" />
@@ -220,7 +220,7 @@ jobs:
                       android:layout_height="46dp"
                       android:layout_marginTop="4dp"
                       android:background="#161922"
-                      android:hint="192.168.1.222"
+                      android:hint="192.168.1.200"
                       android:inputType="text"
                       android:padding="10dp"
                       android:textColor="#FFFFFF"
@@ -391,8 +391,8 @@ jobs:
 
           public class MainActivity extends AppCompatActivity {
 
-              private static final String APP_VERSION = "0.1.16";
-              private static final String DEFAULT_IP = "192.168.1.222";
+              private static final String APP_VERSION = "0.1.17";
+              private static final String DEFAULT_IP = "192.168.1.200";
               private static final String SESSION_COOKIE_NAME = "mg_session";
 
               private EditText etIp, etPort, etPassword, etFolder;
@@ -758,7 +758,7 @@ jobs:
                            + "</style></head><body>"
                            + "<div class='ambient-glow' id='glow'></div>"
                            + lockBlock
-                           + "<div class='topbar'><div><strong>Mg Server v" + APP_VERSION + "</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
+                           + "<div class='topbar'><div><strong>Mg Server v" + APP_VERSION + " — Mag</strong> <span class='badge'>" + escapeHtml(ip) + ":" + escapeHtml(port) + "</span></div>"
                            + "<div style='display:flex;align-items:center;gap:10px;'><span style='font-size:13px;color:#9ca3af;'>المسار: /" + escapeHtml(currentTitle) + "</span>"
                            + (!pass.isEmpty() ? "<button class='logout-btn' onclick='doWebLogout()'>تسجيل خروج</button>" : "")
                            + "</div></div>"
@@ -805,10 +805,6 @@ jobs:
                   return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
               }
 
-              private String escapeJs(String s) {
-                  return s.replace("\\", "\\\\").replace("'", "\\'");
-              }
-
               private String escapeJson(String s) {
                   return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
               }
@@ -844,7 +840,7 @@ jobs:
                   String passState = etPassword.getText().toString().isEmpty() ? "بدون كلمة مرور" : "محمي بكلمة مرور (جلسة حتى الخروج)";
                   List<String> allIps = detectAllLocalIps();
                   String ipsText = allIps.isEmpty() ? ip : String.join(" , ", allIps);
-                  tvSummary.setText("الإصدار: v" + APP_VERSION + "\nالرابط: http://" + ip + ":" + port + "\nعناوين IP المتاحة: " + ipsText + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
+                  tvSummary.setText("الإصدار: v" + APP_VERSION + " • Mag\nالرابط: http://" + ip + ":" + port + "\nعناوين IP المتاحة: " + ipsText + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
               }
 
               private void startServer() {
@@ -1158,13 +1154,10 @@ jobs:
             grep -E "FAILURE:|Execution failed for task|Caused by:|error:" -A 4 build.log | tail -n 60 || true
             exit $EXIT_CODE
           fi
-
-      - name: Rename Mg Server APK
-        run: |
-          cp "MgServerProject/app/build/outputs/apk/debug/app-debug.apk" "MgServerProject/app/build/outputs/apk/debug/MG Server v0.1.16.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/MG-Server-v0.1.17.apk"
 
       - name: Upload Mg Server APK
         uses: actions/upload-artifact@v4
         with:
           name: mg-server-native-apk
-          path: MgServerProject/app/build/outputs/apk/debug/MG Server v0.1.16.apk
+          path: MgServerProject/app/build/outputs/apk/debug/MG-Server-v0.1.17.apk
