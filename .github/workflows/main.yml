@@ -1,4 +1,4 @@
-name: Build Native Mg Server APK
+name: Build Native Mg Server APk
 
 on:
   push:
