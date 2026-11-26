@@ -1,4 +1,4 @@
-name: Build Native Mg Server APk
+name: Build Native Mg Server APK
 
 on:
   push:
@@ -26,6 +26,16 @@ jobs:
           export PATH=$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/cmdline-tools/tools/bin
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-0.1.18-${{ hashFiles('**/gradle.properties', '**/build.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Create Native Android Project (API 19 to 34)
         run: |
@@ -76,8 +86,8 @@ jobs:
                   applicationId "com.magai.mgserver"
                   minSdk 19
                   targetSdk 34
-                  versionCode 17
-                  versionName "0.1.17"
+                  versionCode 18
+                  versionName "0.1.18"
                   multiDexEnabled true
               }
 
@@ -192,7 +202,7 @@ jobs:
                   <TextView
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:text="Mg Server v0.1.17 — Mag"
+                      android:text="Mg Server v0.1.18 — Mag"
                       android:textColor="#FFFFFF"
                       android:textSize="22sp"
                       android:textStyle="bold" />
@@ -270,7 +280,7 @@ jobs:
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="10dp"
-                      android:text="مسار مجلد الوسائط والملفات (MG Server)"
+                      android:text="مجلد افتراضي على الذاكرة الداخلية (يُعرض بجانب الذاكرة الخارجية)"
                       android:textColor="#C5CADB"
                       android:textSize="13sp" />
 
@@ -383,15 +393,17 @@ jobs:
           import java.nio.charset.StandardCharsets;
           import java.util.ArrayList;
           import java.util.Collections;
+          import java.util.LinkedHashMap;
           import java.util.LinkedHashSet;
           import java.util.List;
           import java.util.Locale;
+          import java.util.Map;
           import java.util.Set;
           import java.util.UUID;
 
           public class MainActivity extends AppCompatActivity {
 
-              private static final String APP_VERSION = "0.1.17";
+              private static final String APP_VERSION = "0.1.18";
               private static final String DEFAULT_IP = "192.168.1.200";
               private static final String SESSION_COOKIE_NAME = "mg_session";
 
@@ -403,6 +415,18 @@ jobs:
               private Thread serverThread;
               private volatile boolean running = false;
               private volatile String activeSessionToken = null;
+
+              private static class StorageMount {
+                  final String label;
+                  final String slug;
+                  final File dir;
+
+                  StorageMount(String label, String slug, File dir) {
+                      this.label = label;
+                      this.slug = slug;
+                      this.dir = dir;
+                  }
+              }
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
@@ -441,7 +465,7 @@ jobs:
                       syncSessionState();
                       boolean ok = ensureRootAndIndex();
                       refreshSummary();
-                      tvStatus.setText(ok ? "الحالة: تم حفظ الإعدادات وتحديث الفهرس" : "الحالة: تعذر إنشاء مجلد MG Server — تحقق من صلاحية التخزين");
+                      tvStatus.setText(ok ? "الحالة: تم حفظ الإعدادات وتحديث الفهرس" : "الحالة: تحقق من صلاحية قراءة التخزين");
                       tvStatus.setTextColor(ok ? 0xFF38BDF8 : 0xFFFF6B72);
                       if (running) {
                           stopServer();
@@ -522,6 +546,86 @@ jobs:
                   }
               }
 
+              private List<StorageMount> detectReadableMounts() {
+                  List<StorageMount> mounts = new ArrayList<>();
+                  Set<String> seenPaths = new LinkedHashSet<>();
+
+                  File internal = Environment.getExternalStorageDirectory();
+                  if (internal != null && internal.exists() && internal.canRead()) {
+                      String canon = internal.getAbsolutePath();
+                      if (seenPaths.add(canon)) {
+                          mounts.add(new StorageMount("الذاكرة الداخلية", "internal", internal));
+                      }
+                  }
+
+                  int sdIndex = 1;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                      File[] extDirs = getExternalFilesDirs(null);
+                      if (extDirs != null) {
+                          for (int i = 1; i < extDirs.length; i++) {
+                              File f = extDirs[i];
+                              if (f == null) continue;
+                              File cur = f;
+                              while (cur != null && cur.getParentFile() != null) {
+                                  if ("storage".equals(cur.getParentFile().getName())) {
+                                      String path = cur.getAbsolutePath();
+                                      if (cur.exists() && cur.canRead() && seenPaths.add(path)) {
+                                          String slug = (sdIndex == 1) ? "sdcard" : ("sdcard" + sdIndex);
+                                          String label = "الذاكرة الخارجية (SD " + sdIndex + ")";
+                                          mounts.add(new StorageMount(label, slug, cur));
+                                          sdIndex++;
+                                      }
+                                      break;
+                                  }
+                                  cur = cur.getParentFile();
+                              }
+                          }
+                      }
+                  }
+
+                  File storageRoot = new File("/storage");
+                  File[] listed = storageRoot.listFiles();
+                  if (listed != null) {
+                      for (File m : listed) {
+                          if (!m.isDirectory() || !m.canRead()) continue;
+                          String name = m.getName();
+                          if ("emulated".equals(name) || "self".equals(name) || "sdcard0".equals(name)) continue;
+                          String path = m.getAbsolutePath();
+                          if (seenPaths.add(path)) {
+                              String slug = (sdIndex == 1) ? "sdcard" : ("sdcard" + sdIndex);
+                              String label = "الذاكرة الخارجية (" + name + ")";
+                              mounts.add(new StorageMount(label, slug, m));
+                              sdIndex++;
+                          }
+                      }
+                  }
+
+                  return mounts;
+              }
+
+              private StorageMount findMountBySlug(String slug) {
+                  for (StorageMount m : detectReadableMounts()) {
+                      if (m.slug.equals(slug)) return m;
+                  }
+                  return null;
+              }
+
+              private File resolveVirtualPath(String cleanRelPath) {
+                  String trimmed = cleanRelPath == null ? "" : cleanRelPath.replaceFirst("^/+", "").replace("..", "").replaceAll("/+$", "");
+                  if (trimmed.isEmpty()) {
+                      return null; // يمثل الجذر الافتراضي (MG Server أو نقاط التخزين)
+                  }
+                  String[] parts = trimmed.split("/", 2);
+                  StorageMount mount = findMountBySlug(parts[0]);
+                  if (mount != null) {
+                      if (parts.length == 1 || parts[1].isEmpty()) {
+                          return mount.dir;
+                      }
+                      return new File(mount.dir, parts[1]);
+                  }
+                  return new File(getRootDir(), trimmed);
+              }
+
               private List<String> detectAllLocalIps() {
                   Set<String> found = new LinkedHashSet<>();
                   List<String> ordered = new ArrayList<>();
@@ -567,15 +671,17 @@ jobs:
               private boolean ensureRootAndIndex() {
                   try {
                       File root = getRootDir();
-                      if (!root.exists() && !root.mkdirs()) {
-                          return false;
+                      if (!root.exists() && root.canWrite()) {
+                          root.mkdirs();
                       }
-                      String html = buildDirectoryPageHtml(root, "", false);
-                      File outFile = new File(root, "index.html");
-                      try (FileOutputStream fos = new FileOutputStream(outFile)) {
-                          fos.write(html.getBytes(StandardCharsets.UTF_8));
+                      if (root.exists() && root.canWrite()) {
+                          String html = buildDirectoryPageHtml(root, "", false);
+                          File outFile = new File(root, "index.html");
+                          try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                              fos.write(html.getBytes(StandardCharsets.UTF_8));
+                          }
                       }
-                      return true;
+                      return !detectReadableMounts().isEmpty() || (root.exists() && root.canRead());
                   } catch (Exception e) {
                       return false;
                   }
@@ -583,11 +689,21 @@ jobs:
 
               private String buildApiMediaJson(File dir, String relPath) {
                   try {
-                      File[] files = dir.listFiles();
                       List<String> foldersJson = new ArrayList<>();
                       List<String> itemsJson = new ArrayList<>();
-                      String basePrefix = relPath.isEmpty() ? "" : (encodeRel(relPath) + "/");
+                      String normRel = relPath == null ? "" : relPath.replaceFirst("^/+", "").replaceAll("/+$", "");
 
+                      if (normRel.isEmpty()) {
+                          // عرض نقاط التخزين (الذاكرة الداخلية والذاكرة الخارجية) + محتوى مجلد MG Server
+                          for (StorageMount m : detectReadableMounts()) {
+                              String href = "/" + URLEncoder.encode(m.slug, "UTF-8") + "/";
+                              foldersJson.add("{\"name\":\"" + escapeJson(m.label) + "\",\"path\":\"" + escapeJson(href) + "\",\"type\":\"folder\"}");
+                          }
+                      }
+
+                      File targetDir = (dir != null) ? dir : getRootDir();
+                      String basePrefix = normRel.isEmpty() ? "" : (encodeRel(normRel) + "/");
+                      File[] files = targetDir.listFiles();
                       if (files != null) {
                           for (File f : files) {
                               if (f.getName().equals("index.html")) continue;
@@ -615,7 +731,7 @@ jobs:
                           }
                       }
 
-                      return "{\"server\":\"Mg Server v" + APP_VERSION + "\",\"path\":\"/" + escapeJson(relPath)
+                      return "{\"server\":\"Mg Server v" + APP_VERSION + "\",\"path\":\"/" + escapeJson(normRel)
                            + "\",\"folders\":[" + String.join(",", foldersJson)
                            + "],\"items\":[" + String.join(",", itemsJson) + "]}";
                   } catch (Exception e) {
@@ -629,8 +745,8 @@ jobs:
                       if (ip.isEmpty()) ip = DEFAULT_IP;
                       String port = etPort.getText().toString().trim();
                       String pass = etPassword.getText().toString();
+                      String normRel = relPath == null ? "" : relPath.replaceFirst("^/+", "").replaceAll("/+$", "");
 
-                      File[] files = dir.listFiles();
                       List<File> folders = new ArrayList<>();
                       List<File> videos = new ArrayList<>();
                       List<File> audios = new ArrayList<>();
@@ -638,6 +754,8 @@ jobs:
                       List<File> pdfs = new ArrayList<>();
                       List<File> apks = new ArrayList<>();
 
+                      File targetDir = (dir != null) ? dir : getRootDir();
+                      File[] files = targetDir.listFiles();
                       if (files != null) {
                           for (File f : files) {
                               if (f.getName().equals("index.html")) continue;
@@ -660,16 +778,23 @@ jobs:
                           }
                       }
 
-                      String basePrefix = relPath.isEmpty() ? "" : (encodeRel(relPath) + "/");
+                      String basePrefix = normRel.isEmpty() ? "" : (encodeRel(normRel) + "/");
 
                       StringBuilder folderCards = new StringBuilder();
-                      if (!relPath.isEmpty()) {
+                      if (!normRel.isEmpty()) {
                           String parentRel = "";
-                          int idx = relPath.lastIndexOf('/');
-                          if (idx > 0) parentRel = relPath.substring(0, idx);
+                          int idx = normRel.lastIndexOf('/');
+                          if (idx > 0) parentRel = normRel.substring(0, idx);
                           String backHref = parentRel.isEmpty() ? "/" : ("/" + encodeRel(parentRel) + "/");
                           folderCards.append("<a class='card back-card' href='").append(backHref).append("'>⬅️ العودة للخلف</a>\n");
+                      } else {
+                          for (StorageMount m : detectReadableMounts()) {
+                              String href = "/" + URLEncoder.encode(m.slug, "UTF-8") + "/";
+                              folderCards.append("<a class='card folder-card' href='").append(href).append("'>💾 <span>")
+                                         .append(escapeHtml(m.label)).append("</span></a>\n");
+                          }
                       }
+
                       for (File d : folders) {
                           String href = "/" + basePrefix + URLEncoder.encode(d.getName(), "UTF-8") + "/";
                           folderCards.append("<a class='card folder-card' href='").append(href).append("'>📁 <span>")
@@ -728,7 +853,7 @@ jobs:
                                     + "</div></div>";
                       }
 
-                      String currentTitle = relPath.isEmpty() ? "MG Server" : relPath;
+                      String currentTitle = normRel.isEmpty() ? "MG Server" : normRel;
 
                       return "<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
                            + "<title>Mg Server v" + APP_VERSION + " — " + escapeHtml(currentTitle) + "</title>"
@@ -840,7 +965,17 @@ jobs:
                   String passState = etPassword.getText().toString().isEmpty() ? "بدون كلمة مرور" : "محمي بكلمة مرور (جلسة حتى الخروج)";
                   List<String> allIps = detectAllLocalIps();
                   String ipsText = allIps.isEmpty() ? ip : String.join(" , ", allIps);
-                  tvSummary.setText("الإصدار: v" + APP_VERSION + " • Mag\nالرابط: http://" + ip + ":" + port + "\nعناوين IP المتاحة: " + ipsText + "\nالمجلد الرئيسي: " + folder + "\nالحماية: " + passState);
+                  List<StorageMount> mounts = detectReadableMounts();
+                  List<String> mountLabels = new ArrayList<>();
+                  for (StorageMount m : mounts) {
+                      mountLabels.add(m.label + " (" + m.dir.getAbsolutePath() + ")");
+                  }
+                  String mountsText = mountLabels.isEmpty() ? "لا توجد نقاط قراءة نشطة" : String.join(" | ", mountLabels);
+                  tvSummary.setText("الإصدار: v" + APP_VERSION + " • Mag\nالرابط: http://" + ip + ":" + port
+                          + "\nعناوين IP المتاحة: " + ipsText
+                          + "\nالتخزين المقروء: " + mountsText
+                          + "\nمجلد MG Server: " + folder
+                          + "\nالحماية: " + passState);
               }
 
               private void startServer() {
@@ -975,7 +1110,7 @@ jobs:
                       boolean unlocked = hasValidSessionCookie(cookieHeader);
 
                       File root = getRootDir();
-                      if (!root.exists()) root.mkdirs();
+                      if (!root.exists() && root.canWrite()) root.mkdirs();
 
                       if (cleanPath.equals("/api/media") || cleanPath.equals("/api/index")) {
                           if (!unlocked) {
@@ -997,7 +1132,8 @@ jobs:
                               }
                           }
                           String subRel = subQuery.replaceFirst("^/+", "").replace("..", "").replaceAll("/+$", "");
-                          File targetDir = subRel.isEmpty() ? root : new File(root, subRel);
+                          File targetDir = subRel.isEmpty() ? root : resolveVirtualPath(subRel);
+                          if (targetDir == null) targetDir = root;
                           if (!targetDir.exists() || !targetDir.isDirectory()) targetDir = root;
                           String json = buildApiMediaJson(targetDir, subRel);
                           byte[] body = json.getBytes(StandardCharsets.UTF_8);
@@ -1010,9 +1146,20 @@ jobs:
                       }
 
                       String rel = cleanPath.replaceFirst("^/+", "").replace("..", "").replaceAll("/+$", "");
-                      File target = rel.isEmpty() ? root : new File(root, rel);
+                      if (rel.isEmpty()) {
+                          String html = buildDirectoryPageHtml(root, "", unlocked);
+                          byte[] body = html.getBytes(StandardCharsets.UTF_8);
+                          PrintWriter pw = new PrintWriter(out, false);
+                          pw.print("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n");
+                          pw.flush();
+                          out.write(body);
+                          out.flush();
+                          return;
+                      }
 
-                      if (!target.exists()) {
+                      File target = resolveVirtualPath(rel);
+
+                      if (target == null || !target.exists()) {
                           String notFound = "<h1>404 - غير موجود</h1>";
                           byte[] body = notFound.getBytes(StandardCharsets.UTF_8);
                           PrintWriter pw = new PrintWriter(out, false);
@@ -1147,17 +1294,33 @@ jobs:
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle-8.7-bin.zip
           unzip -q /tmp/gradle-8.7-bin.zip -d /tmp/gradle
           cd MgServerProject
-          /tmp/gradle/gradle-8.7/bin/gradle assembleDebug --no-daemon 2>&1 | tee build.log
-          EXIT_CODE=${PIPESTATUS[0]}
+          ATTEMPT=1
+          MAX_ATTEMPTS=3
+          EXIT_CODE=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Gradle build attempt $ATTEMPT of $MAX_ATTEMPTS..."
+            /tmp/gradle/gradle-8.7/bin/gradle assembleDebug --no-daemon 2>&1 | tee build.log
+            EXIT_CODE=${PIPESTATUS[0]}
+            if [ $EXIT_CODE -eq 0 ]; then
+              break
+            fi
+            if grep -q "429 Too Many Requests\|Connection reset\|Read timed out" build.log && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Transient network/429 error detected, retrying in 15s..."
+              sleep 15
+              ATTEMPT=$((ATTEMPT + 1))
+            else
+              break
+            fi
+          done
           if [ $EXIT_CODE -ne 0 ]; then
             echo "=== ERROR SUMMARY ==="
             grep -E "FAILURE:|Execution failed for task|Caused by:|error:" -A 4 build.log | tail -n 60 || true
             exit $EXIT_CODE
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/MG-Server-v0.1.17.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/MG-Server-v0.1.18.apk"
 
       - name: Upload Mg Server APK
         uses: actions/upload-artifact@v4
         with:
           name: mg-server-native-apk
-          path: MgServerProject/app/build/outputs/apk/debug/MG-Server-v0.1.17.apk
+          path: MgServerProject/app/build/outputs/apk/debug/MG-Server-v0.1.18.apk
